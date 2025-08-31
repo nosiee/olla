@@ -1,15 +1,13 @@
-use std::{collections::HashMap, sync::Arc};
-
 use super::coordinator::{node::Node, rule::CoodinatorRules};
+use super::types::{Message, PACKETS_BUFFER_SIZE};
 use crate::tunnels::tunnel::AsyncTunnel;
 
-use tokio::sync::mpsc::{self, Receiver, Sender};
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
+use tokio::sync::mpsc::{self, Receiver, Sender};
 
 pub mod node;
 pub mod rule;
-
-pub type Message = Vec<u8>;
 
 #[derive(Debug)]
 pub struct NodeCoordinator<T: AsyncTunnel + Send + Sync + 'static> {
@@ -28,16 +26,16 @@ impl<T: AsyncTunnel + Send + Sync + 'static> NodeCoordinator<T> {
     }
 
     pub fn forward(self: Arc<Self>) -> (Sender<Message>, Receiver<Message>) {
-        let (itx, irx): (Sender<Message>, Receiver<Message>) = mpsc::channel(1024);
-        let (otx, mut orx): (Sender<Message>, Receiver<Message>) = mpsc::channel(1024);
+        let (itx, irx): (Sender<Message>, Receiver<Message>) = mpsc::channel(PACKETS_BUFFER_SIZE);
+        let (otx, mut orx): (Sender<Message>, Receiver<Message>) = mpsc::channel(PACKETS_BUFFER_SIZE);
         let self_c = self.clone();
 
         tokio::spawn(async move {
             while let Some(payload) = orx.recv().await {
                 let node = self_c.pick_node();
 
-                if let Err(_) = node.tunnel.send(payload).await {
-                    todo!();
+                if let Err(err) = node.tunnel.send(payload).await {
+                    panic!("{:?}", err);
                 }
 
                 self_c.subscribe_to_node(node, itx.clone()).await;
@@ -61,15 +59,15 @@ impl<T: AsyncTunnel + Send + Sync + 'static> NodeCoordinator<T> {
 
             tokio::spawn(async move {
                 loop {
-                    let mut buffer = [0; 16 * 1024];
+                    let mut buffer = vec![0; node.max_fragment_size];
 
                     let n = match node.tunnel.recv(&mut buffer).await {
                         Ok(n) => n,
                         Err(_) => continue,
                     };
 
-                    if let Err(_) = itx.send(buffer[..n].to_vec()).await {
-                        todo!();
+                    if let Err(err) = itx.send(buffer[..n].to_vec()).await {
+                        panic!("{}", err);
                     }
                 }
             });

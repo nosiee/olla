@@ -8,4 +8,5 @@ pub struct Node<T: AsyncTunnel> {
     pub addr: SocketAddr,
     pub tunnel_type: TunnelType,
     pub tunnel: T,
+    pub max_fragment_size: usize,
 }

@@ -1,9 +1,9 @@
-use crate::config::IfaceConfig;
+use super::config::IfaceConfig;
+use super::types::{Message, PACKETS_BUFFER_SIZE};
+
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tun_rs::{AsyncDevice, DeviceBuilder, Layer};
-
-pub type Message = Vec<u8>;
 
 pub struct Interface {
     dev: Arc<AsyncDevice>,
@@ -40,8 +40,8 @@ impl Interface {
     }
 
     pub async fn forward(&self) -> anyhow::Result<(Sender<Message>, Receiver<Message>)> {
-        let (itx, irx): (Sender<Message>, Receiver<Message>) = mpsc::channel(1024);
-        let (otx, mut orx): (Sender<Message>, Receiver<Message>) = mpsc::channel(1024);
+        let (itx, irx): (Sender<Message>, Receiver<Message>) = mpsc::channel(PACKETS_BUFFER_SIZE);
+        let (otx, mut orx): (Sender<Message>, Receiver<Message>) = mpsc::channel(PACKETS_BUFFER_SIZE);
         let total_buffer_size = self.total_buffer_size.into();
 
         let in_dev = self.dev.clone();

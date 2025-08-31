@@ -4,7 +4,7 @@ use std::fs;
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
     pub iface: IfaceConfig,
-    pub client: ClientConfig,
+    pub rules: ClientRules,
     pub nodes: Vec<NodeConfig>,
 }
 
@@ -18,7 +18,7 @@ pub struct IfaceConfig {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct ClientConfig {
+pub struct ClientRules {
     pub tunnels: Vec<String>,
     pub nodes: u64,
 }

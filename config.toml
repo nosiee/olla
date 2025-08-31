@@ -5,7 +5,7 @@ address = "10.0.0.1"
 mask = "255.255.255.0"
 disable_on_exit = false
 
-[client]
+[rules]
 tunnels = ["tls"]
 nodes = 2
 

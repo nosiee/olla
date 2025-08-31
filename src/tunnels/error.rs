@@ -3,7 +3,7 @@ use anyhow::anyhow;
 pub type ErrorCode = i32;
 pub type ErrorMessage = (String, ErrorCode);
 
-// NOTE(nosiee): keep userspace error codes above zero to prevent conflicts with OS codes
+// NOTE(nosiee): keep userspace error codes above zero to avoid conflicts with OS codes
 pub const DEFAULT_ERROR_CODE: ErrorCode = -1;
 pub const PAYLOAD_SIZE_OVERFLOW: ErrorCode = -2;
 
