@@ -1,4 +1,4 @@
-use crate::tunnels::tunnel::TunnelType;
+use tunnels::TunnelType;
 
 #[derive(Debug, Clone)]
 pub struct CoodinatorRules {

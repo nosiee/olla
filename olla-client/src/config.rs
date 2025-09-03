@@ -3,16 +3,16 @@ use std::fs;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
-    pub iface: IfaceConfig,
+    pub device: DeviceConfig,
     pub rules: ClientRules,
     pub nodes: Vec<NodeConfig>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct IfaceConfig {
+pub struct DeviceConfig {
     pub name: String,
     pub mtu: u16,
-    pub address: String,
+    pub addr: String,
     pub mask: String,
     pub disable_on_exit: bool,
 }
@@ -27,9 +27,10 @@ pub struct ClientRules {
 pub struct NodeConfig {
     pub id: String,
     pub addr: String,
+    pub tunnel: String,
+
     pub ca: Option<String>,
     pub sni: Option<String>,
-    pub tunnel: String,
 }
 
 pub fn from_file(path: &str) -> anyhow::Result<Config> {

@@ -1,5 +1,6 @@
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, ServerName};
+use std::mem;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -7,11 +8,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::RwLock;
-use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector;
+use tokio_rustls::client::TlsStream;
 
-use super::error::{TunnelError, DEFAULT_ERROR_CODE};
-use super::tunnel::AsyncTunnel;
+use crate::AsyncOutgoingTunnel;
+use crate::errors::{CONNECT_ERROR, DEFAULT_ERROR_CODE, SNI_PARSING_ERROR, TLS_CONNECT_ERROR, TunnelError};
+use crate::header;
 
 #[derive(Debug)]
 pub struct TLSTunnel {
@@ -30,8 +32,8 @@ pub struct TLSTunnel {
     prevent_tot: bool,
 }
 
-impl AsyncTunnel for TLSTunnel {
-    async fn send(&self, payload: Vec<u8>) -> anyhow::Result<usize, TunnelError> {
+impl AsyncOutgoingTunnel for TLSTunnel {
+    async fn send(&self, mut payload: Vec<u8>) -> anyhow::Result<usize, TunnelError> {
         if self.w_stream.read().await.is_none() {
             let conn = self.connect().await?;
             let (r_stream, w_stream) = tokio::io::split(conn);
@@ -50,12 +52,10 @@ impl AsyncTunnel for TLSTunnel {
 
         let mut guard = self.w_stream.write().await;
         let stream = guard.as_mut().unwrap();
+        header::add(&mut payload);
 
         if let Err(err) = stream.write_all(payload.as_slice()).await {
-            return Err(TunnelError::IO((
-                err.to_string(),
-                err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE),
-            )));
+            return Err(TunnelError::IO((err.to_string(), err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE))));
         }
 
         if self.keepwarm {
@@ -72,19 +72,32 @@ impl AsyncTunnel for TLSTunnel {
 
         match stream.read(buffer).await {
             Ok(n) => Ok(n),
-            Err(err) => Err(TunnelError::IO((
-                err.to_string(),
-                err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE),
-            ))),
+            Err(err) => Err(TunnelError::IO((err.to_string(), err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE)))),
+        }
+    }
+
+    async fn recv_exact(&self, buffer: &mut [u8]) -> anyhow::Result<usize, TunnelError> {
+        let mut guard = self.r_stream.write().await;
+        let stream = guard.as_mut().unwrap();
+
+        match stream.read_exact(buffer).await {
+            Ok(n) => Ok(n),
+            Err(err) => Err(TunnelError::IO((err.to_string(), err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE)))),
         }
     }
 
     async fn check_connect(&self) -> anyhow::Result<(), TunnelError> {
-        let conn = self.connect().await?;
+        let _ = self.connect().await?;
 
         // NOTE(nosiee): to prevent the UnexpectedEof error on the server side, we need to close the connection properly
         // not really that important in the check_connect call, but keeps the log clean
-        self.shutdown_conn(conn).await
+        self.shutdown().await
+    }
+}
+
+impl Default for TLSTunnel {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -154,6 +167,24 @@ impl TLSTunnel {
         self
     }
 
+    pub async fn shutdown(&self) -> anyhow::Result<(), TunnelError> {
+        let w_stream = mem::take(&mut *self.w_stream.write().await);
+        let r_stream = mem::take(&mut *self.r_stream.write().await);
+
+        if w_stream.is_none() && r_stream.is_some() {
+            let mut conn = ReadHalf::unsplit(r_stream.unwrap(), w_stream.unwrap());
+
+            if let Err(err) = conn.shutdown().await {
+                return Err(TunnelError::Connection((
+                    err.to_string(),
+                    err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE),
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
     async fn connect(&self) -> anyhow::Result<TlsStream<TcpStream>, TunnelError> {
         let ca = self.ca.as_ref().unwrap().clone();
         let sni = self.sni.as_ref().unwrap().clone();
@@ -173,42 +204,20 @@ impl TLSTunnel {
         let stream = match TcpStream::connect(addr).await {
             Ok(stream) => stream,
             Err(err) => {
-                return Err(TunnelError::Connection((
-                    err.to_string(),
-                    err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE),
-                )));
+                return Err(TunnelError::Connection((err.to_string(), err.raw_os_error().unwrap_or(CONNECT_ERROR))));
             }
         };
 
         let domain = match ServerName::try_from(sni) {
             Ok(domain) => domain,
             Err(err) => {
-                return Err(TunnelError::Connection((
-                    err.to_string(),
-                    DEFAULT_ERROR_CODE,
-                )));
+                return Err(TunnelError::Connection((err.to_string(), SNI_PARSING_ERROR)));
             }
         };
 
         match connector.connect(domain, stream).await {
             Ok(tls_stream) => Ok(tls_stream),
-            Err(err) => Err(TunnelError::Connection((
-                err.to_string(),
-                DEFAULT_ERROR_CODE,
-            ))),
-        }
-    }
-
-    async fn shutdown_conn(
-        &self,
-        mut conn: TlsStream<TcpStream>,
-    ) -> anyhow::Result<(), TunnelError> {
-        match conn.shutdown().await {
-            Ok(_) => Ok(()),
-            Err(err) => Err(TunnelError::Connection((
-                err.to_string(),
-                err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE),
-            ))),
+            Err(err) => Err(TunnelError::Connection((err.to_string(), TLS_CONNECT_ERROR))),
         }
     }
 }

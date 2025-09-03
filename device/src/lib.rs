@@ -1,21 +1,24 @@
-use super::config::IfaceConfig;
-use super::types::{Message, PACKETS_BUFFER_SIZE};
+pub mod checksum;
+pub mod config;
 
+use config::DeviceConfig;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tun_rs::{AsyncDevice, DeviceBuilder, Layer};
 
-pub struct Interface {
-    dev: Arc<AsyncDevice>,
+pub const DEVICE_BUFFER_SIZE: usize = 1024;
+pub type Message = Vec<u8>;
 
+pub struct Device {
+    dev: Arc<AsyncDevice>,
     disable_on_exit: bool,
     total_buffer_size: u16,
 }
 
-impl Interface {
-    pub fn new_tun(config: IfaceConfig) -> anyhow::Result<Self> {
+impl Device {
+    pub fn new_tun(config: DeviceConfig) -> anyhow::Result<Self> {
         let disable_on_exit = config.disable_on_exit;
-        let total_buffer_size = config.mtu + 4;
+        let total_buffer_size = config.mtu;
 
         let dev = Self::build_dev(config, Layer::L3)?;
 
@@ -26,9 +29,9 @@ impl Interface {
         })
     }
 
-    pub fn new_tap(config: IfaceConfig) -> anyhow::Result<Self> {
+    pub fn new_tap(config: DeviceConfig) -> anyhow::Result<Self> {
         let disable_on_exit = config.disable_on_exit;
-        let total_buffer_size = config.mtu + 4;
+        let total_buffer_size = config.mtu;
 
         let dev = Self::build_dev(config, Layer::L2)?;
 
@@ -40,8 +43,8 @@ impl Interface {
     }
 
     pub async fn forward(&self) -> anyhow::Result<(Sender<Message>, Receiver<Message>)> {
-        let (itx, irx): (Sender<Message>, Receiver<Message>) = mpsc::channel(PACKETS_BUFFER_SIZE);
-        let (otx, mut orx): (Sender<Message>, Receiver<Message>) = mpsc::channel(PACKETS_BUFFER_SIZE);
+        let (itx, irx): (Sender<Message>, Receiver<Message>) = mpsc::channel(DEVICE_BUFFER_SIZE);
+        let (otx, mut orx): (Sender<Message>, Receiver<Message>) = mpsc::channel(DEVICE_BUFFER_SIZE);
         let total_buffer_size = self.total_buffer_size.into();
 
         let in_dev = self.dev.clone();
@@ -51,9 +54,9 @@ impl Interface {
             let mut buffer = vec![0; total_buffer_size];
 
             loop {
-                if in_dev.recv(&mut buffer).await.is_ok() {
-                    if let Err(_) = itx.send(buffer.clone()).await {
-                        todo!();
+                if let Ok(n) = in_dev.recv(&mut buffer).await {
+                    if let Err(err) = itx.send(buffer[0..n].to_vec()).await {
+                        panic!("{:?}", err);
                     }
                 }
             }
@@ -61,8 +64,8 @@ impl Interface {
 
         tokio::spawn(async move {
             while let Some(payload) = orx.recv().await {
-                if let Err(_) = out_dev.send(payload.as_slice()).await {
-                    todo!();
+                if let Err(err) = out_dev.send(payload.as_slice()).await {
+                    panic!("{:?}", err);
                 }
             }
         });
@@ -70,17 +73,17 @@ impl Interface {
         Ok((otx, irx))
     }
 
-    fn build_dev(config: IfaceConfig, layer: Layer) -> anyhow::Result<AsyncDevice> {
+    fn build_dev(config: DeviceConfig, layer: Layer) -> anyhow::Result<AsyncDevice> {
         Ok(DeviceBuilder::new()
             .name(config.name)
             .mtu(config.mtu)
-            .ipv4(config.address, config.mask, None)
+            .ipv4(config.addr, config.mask, None)
             .layer(layer)
             .build_async()?)
     }
 }
 
-impl Drop for Interface {
+impl Drop for Device {
     fn drop(&mut self) {
         if self.disable_on_exit {
             self.dev.enabled(false).unwrap()

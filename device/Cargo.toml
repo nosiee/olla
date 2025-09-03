@@ -1,0 +1,9 @@
+[package]
+name = "device"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.99"
+tokio = { version = "1.47.1", features = ["full"] }
+tun-rs = { version = "2.7.2", features = ["async"] }

@@ -1,22 +1,22 @@
 use super::coordinator::{node::Node, rule::CoodinatorRules};
-use super::types::{Message, PACKETS_BUFFER_SIZE};
-use crate::tunnels::tunnel::AsyncTunnel;
 
+use device::{DEVICE_BUFFER_SIZE, Message};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 use tokio::sync::mpsc::{self, Receiver, Sender};
+use tunnels::{AsyncOutgoingTunnel, header};
 
 pub mod node;
 pub mod rule;
 
 #[derive(Debug)]
-pub struct NodeCoordinator<T: AsyncTunnel + Send + Sync + 'static> {
+pub struct NodeCoordinator<T: AsyncOutgoingTunnel + Send + Sync + 'static> {
     nodes: Vec<Arc<Node<T>>>,
     subscribes: RwLock<HashMap<String, ()>>,
     rules: Option<CoodinatorRules>,
 }
 
-impl<T: AsyncTunnel + Send + Sync + 'static> NodeCoordinator<T> {
+impl<T: AsyncOutgoingTunnel + Send + Sync + 'static> NodeCoordinator<T> {
     pub fn new(nodes: Vec<Arc<Node<T>>>) -> Self {
         NodeCoordinator {
             nodes,
@@ -26,8 +26,8 @@ impl<T: AsyncTunnel + Send + Sync + 'static> NodeCoordinator<T> {
     }
 
     pub fn forward(self: Arc<Self>) -> (Sender<Message>, Receiver<Message>) {
-        let (itx, irx): (Sender<Message>, Receiver<Message>) = mpsc::channel(PACKETS_BUFFER_SIZE);
-        let (otx, mut orx): (Sender<Message>, Receiver<Message>) = mpsc::channel(PACKETS_BUFFER_SIZE);
+        let (itx, irx): (Sender<Message>, Receiver<Message>) = mpsc::channel(DEVICE_BUFFER_SIZE);
+        let (otx, mut orx): (Sender<Message>, Receiver<Message>) = mpsc::channel(DEVICE_BUFFER_SIZE);
         let self_c = self.clone();
 
         tokio::spawn(async move {
@@ -59,15 +59,18 @@ impl<T: AsyncTunnel + Send + Sync + 'static> NodeCoordinator<T> {
 
             tokio::spawn(async move {
                 loop {
-                    let mut buffer = vec![0; node.max_fragment_size];
+                    let mut header_buf = [0; header::HEADER_SIZE];
 
-                    let n = match node.tunnel.recv(&mut buffer).await {
-                        Ok(n) => n,
-                        Err(_) => continue,
-                    };
+                    if node.tunnel.recv_exact(&mut header_buf).await.is_ok() {
+                        let header_frame = header::decode(header_buf);
+                        let payload_size: usize = header_frame.frame_size as usize - header::HEADER_SIZE;
+                        let mut buf = vec![0; payload_size];
 
-                    if let Err(err) = itx.send(buffer[..n].to_vec()).await {
-                        panic!("{}", err);
+                        if node.tunnel.recv_exact(&mut buf).await.is_ok() {
+                            if let Err(err) = itx.send(buf).await {
+                                panic!("{}", err);
+                            }
+                        }
                     }
                 }
             });

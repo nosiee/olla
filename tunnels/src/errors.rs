@@ -5,7 +5,10 @@ pub type ErrorMessage = (String, ErrorCode);
 
 // NOTE(nosiee): keep userspace error codes above zero to avoid conflicts with OS codes
 pub const DEFAULT_ERROR_CODE: ErrorCode = -1;
-pub const PAYLOAD_SIZE_OVERFLOW: ErrorCode = -2;
+pub const CONNECT_ERROR: ErrorCode = -2;
+pub const PAYLOAD_SIZE_OVERFLOW: ErrorCode = -3;
+pub const SNI_PARSING_ERROR: ErrorCode = -4;
+pub const TLS_CONNECT_ERROR: ErrorCode = -5;
 
 #[derive(Debug)]
 pub enum TunnelError {
