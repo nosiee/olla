@@ -3,15 +3,15 @@ use std::fs;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
-    pub iface: IfaceConfig,
+    pub device: DeviceConfig,
     pub tunnels: Vec<TunnelConfig>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct IfaceConfig {
+pub struct DeviceConfig {
     pub name: String,
     pub mtu: u16,
-    pub address: String,
+    pub addr: String,
     pub mask: String,
     pub disable_on_exit: bool,
 }

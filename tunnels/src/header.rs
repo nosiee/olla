@@ -1,3 +1,5 @@
+use bytes::{Bytes, BytesMut};
+
 pub const HEADER_SIZE: usize = 0x10;
 pub const MAX_IP_FRAME_SIZE: usize = 0x400;
 
@@ -6,24 +8,20 @@ pub struct HeaderFrame {
     pub frame_size: u32,
 }
 
-pub fn add(payload: &mut Vec<u8>) {
-    resize(payload, HEADER_SIZE);
+pub fn extend_payload(payload: &[u8]) -> Bytes {
+    let extended_size: usize = payload.len() + HEADER_SIZE;
+    let mut extended_buffer = BytesMut::zeroed(extended_size);
 
-    total_packet_size(payload);
+    total_packet_size(&mut extended_buffer);
+    panic!("forgot about coping the payload");
+
+    extended_buffer.freeze()
 }
 
 pub fn decode(buf: [u8; HEADER_SIZE]) -> HeaderFrame {
     HeaderFrame {
         frame_size: u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]),
     }
-}
-
-fn resize(payload: &mut Vec<u8>, size: usize) {
-    let payload_len = payload.len();
-
-    payload.resize(payload_len + size, 0);
-    payload.copy_within(0..payload_len, size);
-    payload[0..size].fill(0);
 }
 
 fn total_packet_size(payload: &mut [u8]) {

@@ -1,72 +1,95 @@
-pub mod checksum;
 pub mod config;
 
+use bytes::{Bytes, BytesMut};
 use config::DeviceConfig;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, Receiver, Sender};
+use tracing::debug;
 use tun_rs::{AsyncDevice, DeviceBuilder, Layer};
 
 pub const DEVICE_BUFFER_SIZE: usize = 1024;
-pub type Message = Vec<u8>;
+pub type Message = Bytes;
 
 pub struct Device {
     dev: Arc<AsyncDevice>,
     disable_on_exit: bool,
-    total_buffer_size: u16,
+    mtu: u16,
 }
 
 impl Device {
     pub fn new_tun(config: DeviceConfig) -> anyhow::Result<Self> {
         let disable_on_exit = config.disable_on_exit;
-        let total_buffer_size = config.mtu;
-
+        let mtu = config.mtu;
         let dev = Self::build_dev(config, Layer::L3)?;
+
+        debug!(
+            "new device was created: [{:?}, {:?}, {:?}, {:?}]",
+            dev.name(),
+            dev.mtu(),
+            dev.addresses(),
+            Layer::L3
+        );
 
         Ok(Self {
             dev: Arc::new(dev),
             disable_on_exit,
-            total_buffer_size,
+            mtu,
         })
     }
 
     pub fn new_tap(config: DeviceConfig) -> anyhow::Result<Self> {
         let disable_on_exit = config.disable_on_exit;
-        let total_buffer_size = config.mtu;
-
+        let mtu = config.mtu;
         let dev = Self::build_dev(config, Layer::L2)?;
+
+        debug!(
+            "new device was created: [{:?}, {:?}, {:?}, {:?}]",
+            dev.name(),
+            dev.mtu(),
+            dev.addresses(),
+            Layer::L2
+        );
 
         Ok(Self {
             dev: Arc::new(dev),
             disable_on_exit,
-            total_buffer_size,
+            mtu,
         })
     }
 
     pub async fn forward(&self) -> anyhow::Result<(Sender<Message>, Receiver<Message>)> {
         let (itx, irx): (Sender<Message>, Receiver<Message>) = mpsc::channel(DEVICE_BUFFER_SIZE);
         let (otx, mut orx): (Sender<Message>, Receiver<Message>) = mpsc::channel(DEVICE_BUFFER_SIZE);
-        let total_buffer_size = self.total_buffer_size.into();
+        let mtu = self.mtu;
 
         let in_dev = self.dev.clone();
         let out_dev = self.dev.clone();
 
+        let dev_name = self.dev.name().unwrap_or_default();
         tokio::spawn(async move {
-            let mut buffer = vec![0; total_buffer_size];
-
             loop {
+                let mut buffer = BytesMut::zeroed(mtu as usize);
+
                 if let Ok(n) = in_dev.recv(&mut buffer).await {
-                    if let Err(err) = itx.send(buffer[0..n].to_vec()).await {
+                    debug!("{} bytes read from {}", n, dev_name);
+
+                    buffer.truncate(n);
+
+                    if let Err(err) = itx.send(buffer.freeze()).await {
                         panic!("{:?}", err);
                     }
                 }
             }
         });
 
+        let dev_name = self.dev.name().unwrap_or_default();
         tokio::spawn(async move {
             while let Some(payload) = orx.recv().await {
-                if let Err(err) = out_dev.send(payload.as_slice()).await {
+                if let Err(err) = out_dev.send(&payload).await {
                     panic!("{:?}", err);
                 }
+
+                debug!("{} bytes written to {}", payload.len(), dev_name);
             }
         });
 

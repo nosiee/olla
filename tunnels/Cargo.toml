@@ -5,8 +5,12 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.99"
+bytes = "1.10.1"
 device = { version = "0.1.0", path = "../device" }
 rustls = "0.23.31"
 tokio = { version = "1.46.1", features = ["full"] }
 tokio-rustls = "0.26.2"
 webpki-roots = "1.0.2"
+tokio-util = { version = "0.7.16", features = ["full"] }
+futures-util = { version = "0.3.31", features = ["sink"] }
+tracing = "0.1.41"

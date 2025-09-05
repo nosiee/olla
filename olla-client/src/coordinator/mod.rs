@@ -1,10 +1,12 @@
 use super::coordinator::{node::Node, rule::CoodinatorRules};
 
+use bytes::BytesMut;
 use device::{DEVICE_BUFFER_SIZE, Message};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use tunnels::{AsyncOutgoingTunnel, header};
+use tracing::{debug, error};
+use tunnels::AsyncOutgoingTunnel;
 
 pub mod node;
 pub mod rule;
@@ -33,11 +35,14 @@ impl<T: AsyncOutgoingTunnel + Send + Sync + 'static> NodeCoordinator<T> {
         tokio::spawn(async move {
             while let Some(payload) = orx.recv().await {
                 let node = self_c.pick_node();
+                debug!("{}, {} node picked", node.id, node.addr.to_string());
 
-                if let Err(err) = node.tunnel.send(payload).await {
-                    panic!("{:?}", err);
+                if let Err(err) = node.tunnel.send(&payload).await {
+                    error!("failed to send payload to {}: {:?}", node.addr.to_string(), err);
+                    continue;
                 }
 
+                debug!("{} bytes written to {}", payload.len(), node.addr.to_string());
                 self_c.subscribe_to_node(node, itx.clone()).await;
             }
         });
@@ -56,20 +61,18 @@ impl<T: AsyncOutgoingTunnel + Send + Sync + 'static> NodeCoordinator<T> {
 
             let mut w_guard = self.subscribes.write().await;
             w_guard.insert(node_id, ());
+            debug!("subscribed to {}, {} node", node.id, node.addr.to_string());
 
             tokio::spawn(async move {
                 loop {
-                    let mut header_buf = [0; header::HEADER_SIZE];
+                    let mut buffer = BytesMut::zeroed(node.max_fragment_size);
 
-                    if node.tunnel.recv_exact(&mut header_buf).await.is_ok() {
-                        let header_frame = header::decode(header_buf);
-                        let payload_size: usize = header_frame.frame_size as usize - header::HEADER_SIZE;
-                        let mut buf = vec![0; payload_size];
+                    if let Ok(n) = node.tunnel.recv(&mut buffer).await {
+                        buffer.truncate(n);
+                        debug!("{} bytes read from {}", n, node.addr.to_string());
 
-                        if node.tunnel.recv_exact(&mut buf).await.is_ok() {
-                            if let Err(err) = itx.send(buf).await {
-                                panic!("{}", err);
-                            }
+                        if let Err(err) = itx.send(buffer.freeze()).await {
+                            panic!("{}", err);
                         }
                     }
                 }

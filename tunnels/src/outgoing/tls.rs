@@ -33,7 +33,7 @@ pub struct TLSTunnel {
 }
 
 impl AsyncOutgoingTunnel for TLSTunnel {
-    async fn send(&self, mut payload: Vec<u8>) -> anyhow::Result<usize, TunnelError> {
+    async fn send(&self, payload: &[u8]) -> anyhow::Result<usize, TunnelError> {
         if self.w_stream.read().await.is_none() {
             let conn = self.connect().await?;
             let (r_stream, w_stream) = tokio::io::split(conn);
@@ -52,9 +52,9 @@ impl AsyncOutgoingTunnel for TLSTunnel {
 
         let mut guard = self.w_stream.write().await;
         let stream = guard.as_mut().unwrap();
-        header::add(&mut payload);
+        let payload = header::extend_payload(payload);
 
-        if let Err(err) = stream.write_all(payload.as_slice()).await {
+        if let Err(err) = stream.write_all(&payload).await {
             return Err(TunnelError::IO((err.to_string(), err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE))));
         }
 
@@ -67,13 +67,12 @@ impl AsyncOutgoingTunnel for TLSTunnel {
     }
 
     async fn recv(&self, buffer: &mut [u8]) -> anyhow::Result<usize, TunnelError> {
-        let mut guard = self.r_stream.write().await;
-        let stream = guard.as_mut().unwrap();
+        let mut header_buf = [0; header::HEADER_SIZE];
+        let _ = self.recv_exact(&mut header_buf).await?;
+        let header_frame = header::decode(header_buf);
+        let payload_size: usize = header_frame.frame_size as usize - header::HEADER_SIZE;
 
-        match stream.read(buffer).await {
-            Ok(n) => Ok(n),
-            Err(err) => Err(TunnelError::IO((err.to_string(), err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE)))),
-        }
+        self.recv_exact(&mut buffer[..payload_size]).await
     }
 
     async fn recv_exact(&self, buffer: &mut [u8]) -> anyhow::Result<usize, TunnelError> {

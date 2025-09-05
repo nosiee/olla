@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.98"
+bytes = "1.10.1"
 device = { version = "0.1.0", path = "../device" }
 hex = "0.4.3"
 pnet = "0.35.0"

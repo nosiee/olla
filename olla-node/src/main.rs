@@ -1,37 +1,53 @@
 use std::sync::Arc;
-use tokio::sync::mpsc::{self, Receiver, Sender};
 
-use crate::types::{Message, PACKETS_BUFFER_SIZE};
-use iface::Interface;
-use tunnels::tls::TLSTunnel;
-use tunnels::tunnel::{AsyncTunnel, TunnelType};
+use device::{Device, config::DeviceConfig};
+use tunnels::{AsyncIncomingTunnel, TunnelType, incoming::udp::UDPTunnel};
 
 mod config;
-mod iface;
-mod tunnels;
-mod types;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let conf = config::from_file("config_node.toml")?;
-    let iface = Interface::new_tun(conf.iface).unwrap();
-    let (tx, mut rx): (Sender<Message>, Receiver<Message>) = iface.forward().await.unwrap();
+    let conf = config::from_file("configs/node.toml")?;
+    let device = new_network_device(conf.device)?;
+    let (tun_tx, mut tun_rx) = device.forward().await?;
 
     for tunnel in conf.tunnels {
         match tunnel.tunnel_type.into() {
             TunnelType::Tls => {
-                let tun = Arc::new(TLSTunnel::new(tunnel.addr.parse().unwrap(), tunnel.cert.unwrap(), tunnel.key.unwrap()));
-                tun.clone().forward(tx.clone()).await.unwrap();
+                todo!();
+            }
+            TunnelType::Udp => {
+                let udptun = Arc::new(UDPTunnel::new(tunnel.addr.parse().unwrap()).await);
+                let _ = udptun.clone().forward(tun_tx.clone()).await;
 
-                while let Some(buf) = rx.recv().await {
-                    tun.write("1".to_string(), buf).await.unwrap();
+                while let Some(payload) = tun_rx.recv().await {
+                    // FIXME(nosiee): ??????????????
+                    udptun.write("123.123.123.123:1234".into(), &payload).await.unwrap();
                 }
             }
-            _ => unreachable!(),
+            TunnelType::Tcp => {
+                todo!();
+            }
+            TunnelType::Rtmp => {
+                todo!();
+            }
+            TunnelType::Unknown => {
+                todo!();
+            }
         }
     }
 
     Ok(())
+}
+
+fn new_network_device(conf: config::DeviceConfig) -> anyhow::Result<Device> {
+    Device::new_tun(DeviceConfig {
+        name: conf.name,
+        mtu: conf.mtu,
+        addr: conf.addr.parse().unwrap(),
+        mask: conf.mask,
+        disable_on_exit: conf.disable_on_exit,
+    })
 }

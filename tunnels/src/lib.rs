@@ -31,7 +31,7 @@ impl From<String> for TunnelType {
 }
 
 pub trait AsyncOutgoingTunnel {
-    fn send(&self, payload: Vec<u8>) -> impl std::future::Future<Output = Result<usize, TunnelError>> + Send;
+    fn send(&self, payload: &[u8]) -> impl std::future::Future<Output = Result<usize, TunnelError>> + Send;
     fn recv(&self, buffer: &mut [u8]) -> impl std::future::Future<Output = Result<usize, TunnelError>> + Send;
     fn recv_exact(&self, buffer: &mut [u8]) -> impl std::future::Future<Output = Result<usize, TunnelError>> + Send;
     fn check_connect(&self) -> impl std::future::Future<Output = Result<(), TunnelError>> + Send;
@@ -39,7 +39,7 @@ pub trait AsyncOutgoingTunnel {
 
 pub trait AsyncIncomingTunnel {
     fn forward(self: Arc<Self>, tx: Sender<Message>) -> impl std::future::Future<Output = Result<(), TunnelError>> + Send;
-    fn write(&self, peer: String, payload: Vec<u8>) -> impl ::std::future::Future<Output = Result<usize, TunnelError>> + Send;
+    fn write(&self, peer: String, payload: &[u8]) -> impl ::std::future::Future<Output = Result<usize, TunnelError>> + Send;
 }
 
 pub trait SyncOutgoingTunnel {
@@ -51,5 +51,5 @@ pub trait SyncOutgoingTunnel {
 
 pub trait SyncIncomingTunnel {
     fn forward(self: Arc<Self>, tx: Sender<Message>) -> Result<(), TunnelError>;
-    fn write(&self, peer: String, payload: Vec<u8>) -> Result<usize, TunnelError>;
+    fn write(&self, peer: String, payload: &[u8]) -> Result<usize, TunnelError>;
 }
