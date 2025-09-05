@@ -1,0 +1,11 @@
+[package]
+name = "device"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.99"
+bytes = "1.10.1"
+tokio = { version = "1.47.1", features = ["full"] }
+tracing = "0.1.41"
+tun-rs = { version = "2.7.2", features = ["async"] }

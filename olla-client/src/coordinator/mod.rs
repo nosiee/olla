@@ -1,24 +1,24 @@
-use std::{collections::HashMap, sync::Arc};
-
 use super::coordinator::{node::Node, rule::CoodinatorRules};
-use crate::tunnels::tunnel::AsyncTunnel;
 
-use tokio::sync::mpsc::{self, Receiver, Sender};
+use bytes::BytesMut;
+use device::{DEVICE_BUFFER_SIZE, Message};
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
+use tokio::sync::mpsc::{self, Receiver, Sender};
+use tracing::{debug, error};
+use tunnels::AsyncOutgoingTunnel;
 
 pub mod node;
 pub mod rule;
 
-pub type Message = Vec<u8>;
-
 #[derive(Debug)]
-pub struct NodeCoordinator<T: AsyncTunnel + Send + Sync + 'static> {
+pub struct NodeCoordinator<T: AsyncOutgoingTunnel + Send + Sync + 'static> {
     nodes: Vec<Arc<Node<T>>>,
     subscribes: RwLock<HashMap<String, ()>>,
     rules: Option<CoodinatorRules>,
 }
 
-impl<T: AsyncTunnel + Send + Sync + 'static> NodeCoordinator<T> {
+impl<T: AsyncOutgoingTunnel + Send + Sync + 'static> NodeCoordinator<T> {
     pub fn new(nodes: Vec<Arc<Node<T>>>) -> Self {
         NodeCoordinator {
             nodes,
@@ -28,18 +28,21 @@ impl<T: AsyncTunnel + Send + Sync + 'static> NodeCoordinator<T> {
     }
 
     pub fn forward(self: Arc<Self>) -> (Sender<Message>, Receiver<Message>) {
-        let (itx, irx): (Sender<Message>, Receiver<Message>) = mpsc::channel(1024);
-        let (otx, mut orx): (Sender<Message>, Receiver<Message>) = mpsc::channel(1024);
+        let (itx, irx): (Sender<Message>, Receiver<Message>) = mpsc::channel(DEVICE_BUFFER_SIZE);
+        let (otx, mut orx): (Sender<Message>, Receiver<Message>) = mpsc::channel(DEVICE_BUFFER_SIZE);
         let self_c = self.clone();
 
         tokio::spawn(async move {
             while let Some(payload) = orx.recv().await {
                 let node = self_c.pick_node();
+                debug!("{}, {} node picked", node.id, node.addr.to_string());
 
-                if let Err(_) = node.tunnel.send(payload).await {
-                    todo!();
+                if let Err(err) = node.tunnel.send(&payload).await {
+                    error!("failed to send payload to {}: {:?}", node.addr.to_string(), err);
+                    continue;
                 }
 
+                debug!("{} bytes written to {}", payload.len(), node.addr.to_string());
                 self_c.subscribe_to_node(node, itx.clone()).await;
             }
         });
@@ -58,18 +61,19 @@ impl<T: AsyncTunnel + Send + Sync + 'static> NodeCoordinator<T> {
 
             let mut w_guard = self.subscribes.write().await;
             w_guard.insert(node_id, ());
+            debug!("subscribed to {}, {} node", node.id, node.addr.to_string());
 
             tokio::spawn(async move {
                 loop {
-                    let mut buffer = [0; 16 * 1024];
+                    let mut buffer = BytesMut::zeroed(node.max_fragment_size);
 
-                    let n = match node.tunnel.recv(&mut buffer).await {
-                        Ok(n) => n,
-                        Err(_) => continue,
-                    };
+                    if let Ok(n) = node.tunnel.recv(&mut buffer).await {
+                        buffer.truncate(n);
+                        debug!("{} bytes read from {}", n, node.addr.to_string());
 
-                    if let Err(_) = itx.send(buffer[..n].to_vec()).await {
-                        todo!();
+                        if let Err(err) = itx.send(buffer.freeze()).await {
+                            panic!("{}", err);
+                        }
                     }
                 }
             });
