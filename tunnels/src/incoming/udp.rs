@@ -1,15 +1,17 @@
 use bytes::BytesMut;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::net::UdpSocket;
 use tokio::sync::mpsc::Sender;
+use tokio::{net::UdpSocket, sync::RwLock};
 use tracing::{debug, error};
 
-use crate::{AsyncIncomingTunnel, errors::DEFAULT_ERROR_CODE, errors::TunnelError};
+use crate::{AsyncIncomingTunnel, errors::DEFAULT_ERROR_CODE, errors::NO_PEER_FOUND, errors::TunnelError};
 use device::Message;
 
 pub struct UDPTunnel {
     socket: Arc<UdpSocket>,
+    peers: RwLock<HashMap<String, String>>,
 }
 
 impl AsyncIncomingTunnel for UDPTunnel {
@@ -29,8 +31,16 @@ impl AsyncIncomingTunnel for UDPTunnel {
                 buffer.truncate(n);
                 debug!("{} bytes read from {}", n, addr.to_string());
 
-                if let Err(err) = tx.send(buffer.freeze()).await {
-                    error!("failed to send incoming udp payload to the tx: {}", err);
+                match device::util::get_source_identity(&buffer) {
+                    Some(identity) => {
+                        let mut peers_guard = self.peers.write().await;
+                        peers_guard.insert(identity, addr.to_string());
+
+                        if let Err(err) = tx.send(buffer.freeze()).await {
+                            error!("failed to send incoming udp payload to the tx: {}", err);
+                        }
+                    }
+                    None => debug!("{} packet omitted, no source identity found", hex::encode(&buffer)),
                 }
             }
         });
@@ -39,15 +49,24 @@ impl AsyncIncomingTunnel for UDPTunnel {
     }
 
     async fn write(&self, peer: String, payload: &[u8]) -> anyhow::Result<usize, TunnelError> {
-        let peer_addr: SocketAddr = peer.parse().unwrap();
+        let peers_guard = self.peers.read().await;
 
-        match self.socket.send_to(payload, peer_addr).await {
-            Ok(n) => {
-                debug!("{} bytes written to {}", payload.len(), peer_addr);
-                Ok(n)
-            }
-            Err(err) => Err(TunnelError::IO((err.to_string(), err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE)))),
+        if let Some(peer_addr) = peers_guard.get(&peer) {
+            let peer_addr: SocketAddr = peer_addr.parse().unwrap();
+
+            return match self.socket.send_to(payload, peer_addr).await {
+                Ok(n) => {
+                    debug!("{} bytes written to {}", payload.len(), peer_addr);
+                    Ok(n)
+                }
+                Err(err) => Err(TunnelError::IO((err.to_string(), err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE)))),
+            };
         }
+
+        Err(TunnelError::Connection((
+            format!("failed to write payload: {} peer not found", peer),
+            NO_PEER_FOUND,
+        )))
     }
 }
 
@@ -55,9 +74,7 @@ impl UDPTunnel {
     pub async fn new(addr: SocketAddr) -> Self {
         Self {
             socket: Arc::new(UdpSocket::bind(addr).await.unwrap()),
+            peers: RwLock::new(HashMap::new()),
         }
     }
 }
-
-// TODO(nosiee): need to periodically send some small payload to the peer socket to keep the NAT
-// cache alive.

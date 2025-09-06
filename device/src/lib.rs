@@ -1,4 +1,6 @@
 pub mod config;
+pub mod packet;
+pub mod util;
 
 use bytes::{Bytes, BytesMut};
 use config::DeviceConfig;
