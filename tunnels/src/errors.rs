@@ -9,7 +9,7 @@ pub const CONNECT_ERROR: ErrorCode = -2;
 pub const PAYLOAD_SIZE_OVERFLOW: ErrorCode = -3;
 pub const SNI_PARSING_ERROR: ErrorCode = -4;
 pub const TLS_CONNECT_ERROR: ErrorCode = -5;
-pub const NO_IDENTITY_FOUND: ErrorCode = -6;
+pub const NO_PEER_FOUND: ErrorCode = -6;
 
 #[derive(Debug)]
 pub enum TunnelError {

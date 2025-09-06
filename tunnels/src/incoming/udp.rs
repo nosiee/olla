@@ -6,8 +6,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::{net::UdpSocket, sync::RwLock};
 use tracing::{debug, error};
 
-use crate::errors::NO_IDENTITY_FOUND;
-use crate::{AsyncIncomingTunnel, errors::DEFAULT_ERROR_CODE, errors::TunnelError};
+use crate::{AsyncIncomingTunnel, errors::DEFAULT_ERROR_CODE, errors::NO_PEER_FOUND, errors::TunnelError};
 use device::Message;
 
 pub struct UDPTunnel {
@@ -65,8 +64,8 @@ impl AsyncIncomingTunnel for UDPTunnel {
         }
 
         Err(TunnelError::Connection((
-            "failed to write payload, no identity found".into(),
-            NO_IDENTITY_FOUND,
+            format!("failed to write payload: {} peer not found", peer),
+            NO_PEER_FOUND,
         )))
     }
 }
