@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use device::{Device, config::DeviceConfig};
+use tracing::debug;
 use tunnels::{AsyncIncomingTunnel, TunnelType, incoming::udp::UDPTunnel};
 
 mod config;
@@ -23,8 +24,12 @@ async fn main() -> anyhow::Result<()> {
                 let _ = udptun.clone().forward(tun_tx.clone()).await;
 
                 while let Some(payload) = tun_rx.recv().await {
-                    // FIXME(nosiee): ??????????????
-                    udptun.write("123.123.123.123:1234".into(), &payload).await.unwrap();
+                    match device::util::get_destination_identity(&payload) {
+                        Some(identity) => {
+                            let _ = udptun.write(identity, &payload).await;
+                        }
+                        None => debug!("{} packet omitted, no destination identity found", hex::encode(&payload)),
+                    }
                 }
             }
             TunnelType::Tcp => {

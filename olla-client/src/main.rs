@@ -26,7 +26,7 @@ async fn main() -> anyhow::Result<()> {
         max_fragment_size: conf.device.mtu as usize,
     })];
 
-    let device = new_network_device(conf.device)?;
+    let device = new_network_device(&conf.device)?;
     let (tun_tx, mut tun_rx) = device.forward().await?;
 
     let node_coord = Arc::new(NodeCoordinator::new(nodes));
@@ -45,12 +45,12 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn new_network_device(conf: config::DeviceConfig) -> anyhow::Result<Device> {
+fn new_network_device(conf: &config::DeviceConfig) -> anyhow::Result<Device> {
     Device::new_tun(DeviceConfig {
-        name: conf.name,
+        name: conf.name.clone(),
         mtu: conf.mtu,
         addr: conf.addr.parse().unwrap(),
-        mask: conf.mask,
+        mask: conf.mask.clone(),
         disable_on_exit: conf.disable_on_exit,
     })
 }
