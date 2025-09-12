@@ -49,7 +49,7 @@ impl<T: AsyncOutgoingTunnel + Send + Sync + 'static> PacketCoordinator<T> {
             // becasue of that some packets are dropped, while loop is failed and orx dropped as well
             // so the tunnels/src/outgoing/udp.rs:32: will cause a panic, channel is closed
 
-            // NOTE(nosiee): can we use a regular channel?
+            // NOTE(nosiee): can we use a regular channel? or channel buffer is just too small?
             // in our case block on full buffer is more preferable. we can't allow packet loss
             while let Ok((tunnel_id, peer, mut payload)) = orx.recv().await {
                 if payload.len() <= HEADER_SIZE {
