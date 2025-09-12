@@ -4,10 +4,10 @@ pub mod incoming;
 pub mod outgoing;
 
 use std::sync::Arc;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::broadcast::Sender;
 
-use device::Message;
 use errors::TunnelError;
+use types::*;
 
 #[derive(Debug, Clone)]
 pub enum TunnelType {
@@ -38,7 +38,7 @@ pub trait AsyncOutgoingTunnel {
 }
 
 pub trait AsyncIncomingTunnel {
-    fn forward(self: Arc<Self>, tx: Sender<Message>) -> impl std::future::Future<Output = Result<(), TunnelError>> + Send;
+    fn forward(self: Arc<Self>, tx: Sender<PacketCoordinatorMessage>) -> impl std::future::Future<Output = Result<(), TunnelError>> + Send;
     fn write(&self, peer: String, payload: &[u8]) -> impl ::std::future::Future<Output = Result<usize, TunnelError>> + Send;
 }
 
@@ -50,6 +50,6 @@ pub trait SyncOutgoingTunnel {
 }
 
 pub trait SyncIncomingTunnel {
-    fn forward(self: Arc<Self>, tx: Sender<Message>) -> Result<(), TunnelError>;
+    fn forward(self: Arc<Self>, tx: Sender<PacketCoordinatorMessage>) -> Result<(), TunnelError>;
     fn write(&self, peer: String, payload: &[u8]) -> Result<usize, TunnelError>;
 }

@@ -1,3 +1,3 @@
 [workspace]
 resolver = "3"
-members = [ "device","olla-client", "olla-node", "tunnels"]
+members = [ "coordinator", "device","olla-client", "olla-node", "tunnels", "types"]

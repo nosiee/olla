@@ -1,21 +1,19 @@
 use std::net::SocketAddr;
-use std::time::{Duration, SystemTime};
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 use tracing::debug;
 
 use crate::AsyncOutgoingTunnel;
 use crate::errors::{CONNECT_ERROR, DEFAULT_ERROR_CODE, TunnelError};
+use crate::header;
 
 #[derive(Debug)]
 pub struct UDPTunnel {
     socket: RwLock<Option<UdpSocket>>,
     addr: Option<SocketAddr>,
 
-    session_expired_at: RwLock<Option<SystemTime>>,
-    session_ttl: Duration,
-    keepalive: bool,
-    keepwarm: bool,
+    keepalive: u64,
+    pnode_addr: Option<SocketAddr>,
 }
 
 impl AsyncOutgoingTunnel for UDPTunnel {
@@ -25,27 +23,17 @@ impl AsyncOutgoingTunnel for UDPTunnel {
             let mut w_socket_guard = self.socket.write().await;
 
             *w_socket_guard = Some(socket);
-
-            if self.keepwarm || !self.session_ttl.is_zero() {
-                let mut session_guard = self.session_expired_at.write().await;
-                *session_guard = Some(SystemTime::now().checked_add(self.session_ttl).unwrap());
-            }
         }
 
         let w_socket_guard = self.socket.read().await;
         let socket = w_socket_guard.as_ref().unwrap();
+        let payload = header::extend_payload(payload, self.pnode_addr);
 
-        if let Err(err) = socket.send(payload).await {
+        if let Err(err) = socket.send(&payload).await {
             return Err(TunnelError::IO((err.to_string(), err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE))));
         }
 
         debug!("{} bytes written to {}", payload.len(), self.addr.unwrap().to_string());
-
-        if self.keepwarm {
-            let mut session_guard = self.session_expired_at.write().await;
-            *session_guard = Some(SystemTime::now().checked_add(self.session_ttl).unwrap());
-        }
-
         Ok(payload.len())
     }
 
@@ -84,10 +72,8 @@ impl UDPTunnel {
             socket: RwLock::new(None),
             addr: None,
 
-            session_expired_at: RwLock::new(None),
-            session_ttl: Duration::ZERO,
-            keepalive: false,
-            keepwarm: false,
+            keepalive: 0,
+            pnode_addr: None,
         }
     }
 
@@ -96,51 +82,32 @@ impl UDPTunnel {
         self
     }
 
-    pub fn set_session_ttl(mut self, ttl: Duration) -> Self {
-        if !ttl.is_zero() {
-            self = self.set_keepalive(false);
-        }
-
-        self.session_ttl = ttl;
-        self
-    }
-
-    pub fn set_keepalive(mut self, keepalive: bool) -> Self {
-        if keepalive {
-            self = self.set_session_ttl(Duration::ZERO).set_keepwarm(false);
-        }
-
+    pub fn set_keepalive(mut self, keepalive: u64) -> Self {
         self.keepalive = keepalive;
         self
     }
 
-    pub fn set_keepwarm(mut self, keepwarm: bool) -> Self {
-        if keepwarm {
-            self = self.set_keepalive(false);
-        }
-
-        self.keepwarm = keepwarm;
+    pub fn set_primary_node(mut self, pnode_addr: SocketAddr) -> Self {
+        self.pnode_addr = Some(pnode_addr);
         self
     }
 
     async fn connect(&self) -> anyhow::Result<UdpSocket, TunnelError> {
-        match UdpSocket::bind("0.0.0.0:0").await {
-            Ok(socket) => match socket.connect(self.addr.unwrap()).await {
-                Ok(_) => {
-                    debug!(
-                        "{} socket connected to {}",
-                        socket.local_addr().unwrap().to_string(),
-                        socket.peer_addr().unwrap().to_string()
-                    );
+        let socket = match UdpSocket::bind("0.0.0.0:0").await {
+            Ok(socket) => socket,
+            Err(err) => return Err(TunnelError::Connection((err.to_string(), err.raw_os_error().unwrap_or(CONNECT_ERROR)))),
+        };
 
-                    Ok(socket)
-                }
-                Err(err) => Err(TunnelError::Connection((err.to_string(), err.raw_os_error().unwrap_or(CONNECT_ERROR)))),
-            },
-            Err(err) => Err(TunnelError::Connection((err.to_string(), err.raw_os_error().unwrap_or(CONNECT_ERROR)))),
+        if let Err(err) = socket.connect(self.addr.unwrap()).await {
+            return Err(TunnelError::Connection((err.to_string(), err.raw_os_error().unwrap_or(CONNECT_ERROR))));
         }
+
+        debug!(
+            "{} socket connected to {}",
+            socket.local_addr().unwrap().to_string(),
+            socket.peer_addr().unwrap().to_string()
+        );
+
+        Ok(socket)
     }
 }
-
-// TODO(nosiee): need to periodically send some small payload to the peer socket to keep the NAT
-// cache alive.
