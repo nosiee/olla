@@ -28,6 +28,7 @@ pub struct TLSTunnel {
     session_ttl: Duration,
     keepalive: bool,
     keepwarm: bool,
+    mnode_addr: Option<SocketAddr>,
 
     prevent_tot: bool,
 }
@@ -52,7 +53,7 @@ impl AsyncOutgoingTunnel for TLSTunnel {
 
         let mut guard = self.w_stream.write().await;
         let stream = guard.as_mut().unwrap();
-        let payload = header::extend_payload(payload);
+        let payload = header::extend_payload(payload, self.mnode_addr);
 
         if let Err(err) = stream.write_all(&payload).await {
             return Err(TunnelError::IO((err.to_string(), err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE))));
@@ -114,6 +115,7 @@ impl TLSTunnel {
             session_ttl: Duration::ZERO,
             keepalive: false,
             keepwarm: false,
+            mnode_addr: None,
 
             prevent_tot: false,
         }
@@ -163,6 +165,11 @@ impl TLSTunnel {
 
     pub fn set_sni(mut self, sni: String) -> Self {
         self.sni = Some(sni);
+        self
+    }
+
+    pub fn set_master_node(mut self, node_addr: SocketAddr) -> Self {
+        self.mnode_addr = Some(node_addr);
         self
     }
 

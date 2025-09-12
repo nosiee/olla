@@ -1,15 +1,24 @@
-use super::coordinator::{node::Node, rule::CoodinatorRules};
+pub mod rule;
 
 use bytes::BytesMut;
 use device::{DEVICE_BUFFER_SIZE, Message};
+use std::net::SocketAddr;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::{debug, error};
-use tunnels::AsyncOutgoingTunnel;
+use tunnels::{AsyncOutgoingTunnel, TunnelType};
 
-pub mod node;
-pub mod rule;
+use super::node::rule::CoodinatorRules;
+
+#[derive(Debug)]
+pub struct Node<T: AsyncOutgoingTunnel> {
+    pub id: String,
+    pub addr: SocketAddr,
+    pub tunnel_type: TunnelType,
+    pub tunnel: T,
+    pub max_fragment_size: usize,
+}
 
 #[derive(Debug)]
 pub struct NodeCoordinator<T: AsyncOutgoingTunnel + Send + Sync + 'static> {

@@ -242,6 +242,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "coordinator"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "device",
+ "hex",
+ "rand",
+ "tokio",
+ "tracing",
+ "tunnels",
+ "types",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -798,6 +813,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "coordinator",
  "device",
  "hex",
  "pnet",
@@ -821,6 +837,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "coordinator",
  "device",
  "hex",
  "pnet",
@@ -835,6 +852,7 @@ dependencies = [
  "tracing-subscriber",
  "tun-rs",
  "tunnels",
+ "types",
  "webpki-roots",
 ]
 
@@ -1565,7 +1583,15 @@ dependencies = [
  "tokio-rustls",
  "tokio-util",
  "tracing",
+ "types",
  "webpki-roots",
+]
+
+[[package]]
+name = "types"
+version = "0.1.0"
+dependencies = [
+ "bytes",
 ]
 
 [[package]]

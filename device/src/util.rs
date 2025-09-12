@@ -1,5 +1,9 @@
-use super::packet::*;
+use pnet::datalink::{self, NetworkInterface};
+use pnet::ipnetwork::IpNetwork;
 use pnet::packet::{ethernet::EtherTypes, ip::IpNextHeaderProtocols, Packet};
+use std::net::{Ipv4Addr, Ipv6Addr};
+
+use super::packet::*;
 
 pub fn get_source_identity(buf: &[u8]) -> Option<String> {
     let eth_pkt = from_ip_payload(buf)?;
@@ -103,4 +107,32 @@ pub fn get_destination_identity(buf: &[u8]) -> Option<String> {
     };
 
     Some(identity)
+}
+
+pub fn get_device_ipv4(name: &str) -> Option<Ipv4Addr> {
+    let filter = |iface: &NetworkInterface| iface.name == name;
+    let interfaces = datalink::interfaces();
+    let interface = interfaces.into_iter().find(filter).unwrap_or_else(|| panic!("no such device: {}", name));
+
+    for ip in interface.ips {
+        if let IpNetwork::V4(ipv4) = ip {
+            return Some(ipv4.ip());
+        }
+    }
+
+    None
+}
+
+pub fn get_device_ipv6(name: &str) -> Option<Ipv6Addr> {
+    let filter = |iface: &NetworkInterface| iface.name == name;
+    let interfaces = datalink::interfaces();
+    let interface = interfaces.into_iter().find(filter).unwrap_or_else(|| panic!("no such device: {}", name));
+
+    for ip in interface.ips {
+        if let IpNetwork::V6(ipv6) = ip {
+            return Some(ipv6.ip());
+        }
+    }
+
+    None
 }

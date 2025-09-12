@@ -5,7 +5,7 @@ pub mod util;
 use bytes::{Bytes, BytesMut};
 use config::DeviceConfig;
 use std::sync::Arc;
-use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::sync::broadcast::{self, Receiver, Sender};
 use tracing::debug;
 use tun_rs::{AsyncDevice, DeviceBuilder, Layer};
 
@@ -60,8 +60,8 @@ impl Device {
     }
 
     pub async fn forward(&self) -> anyhow::Result<(Sender<Message>, Receiver<Message>)> {
-        let (itx, irx): (Sender<Message>, Receiver<Message>) = mpsc::channel(DEVICE_BUFFER_SIZE);
-        let (otx, mut orx): (Sender<Message>, Receiver<Message>) = mpsc::channel(DEVICE_BUFFER_SIZE);
+        let (itx, irx): (Sender<Message>, Receiver<Message>) = broadcast::channel(DEVICE_BUFFER_SIZE);
+        let (otx, mut orx): (Sender<Message>, Receiver<Message>) = broadcast::channel(DEVICE_BUFFER_SIZE);
         let mtu = self.mtu;
 
         let in_dev = self.dev.clone();
@@ -77,7 +77,7 @@ impl Device {
 
                     buffer.truncate(n);
 
-                    if let Err(err) = itx.send(buffer.freeze()).await {
+                    if let Err(err) = itx.send(buffer.freeze()) {
                         panic!("{:?}", err);
                     }
                 }
@@ -86,7 +86,7 @@ impl Device {
 
         let dev_name = self.dev.name().unwrap_or_default();
         tokio::spawn(async move {
-            while let Some(payload) = orx.recv().await {
+            while let Ok(payload) = orx.recv().await {
                 if let Err(err) = out_dev.send(&payload).await {
                     panic!("{:?}", err);
                 }

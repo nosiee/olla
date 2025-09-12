@@ -1,24 +1,23 @@
 use bytes::BytesMut;
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::mpsc::Sender;
-use tokio::{net::UdpSocket, sync::RwLock};
-use tracing::{debug, error};
+use tokio::net::UdpSocket;
+use tokio::sync::broadcast::Sender;
+use tracing::error;
+use types::*;
 
-use crate::{AsyncIncomingTunnel, errors::DEFAULT_ERROR_CODE, errors::NO_PEER_FOUND, errors::TunnelError};
-use device::Message;
+use crate::{AsyncIncomingTunnel, errors::*};
 
 pub struct UDPTunnel {
+    id: String,
     socket: Arc<UdpSocket>,
-    peers: RwLock<HashMap<String, String>>,
 }
 
 impl AsyncIncomingTunnel for UDPTunnel {
-    async fn forward(self: Arc<Self>, tx: Sender<Message>) -> anyhow::Result<(), TunnelError> {
+    async fn forward(self: Arc<Self>, tx: Sender<PacketCoordinatorMessage>) -> anyhow::Result<(), TunnelError> {
         tokio::spawn(async move {
             loop {
-                // FIXME(nosiee): should use device MTU
+                // FIXME(nosiee): should use device MTU + HEADER_SIZE
                 let mut buffer = BytesMut::zeroed(1500);
 
                 let r = self.socket.recv_from(&mut buffer).await;
@@ -29,18 +28,9 @@ impl AsyncIncomingTunnel for UDPTunnel {
 
                 let (n, addr) = r.unwrap();
                 buffer.truncate(n);
-                debug!("{} bytes read from {}", n, addr.to_string());
 
-                match device::util::get_source_identity(&buffer) {
-                    Some(identity) => {
-                        let mut peers_guard = self.peers.write().await;
-                        peers_guard.insert(identity, addr.to_string());
-
-                        if let Err(err) = tx.send(buffer.freeze()).await {
-                            error!("failed to send incoming udp payload to the tx: {}", err);
-                        }
-                    }
-                    None => debug!("{} packet omitted, no source identity found", hex::encode(&buffer)),
+                if let Err(err) = tx.send((self.id.clone(), addr.to_string(), buffer.freeze())) {
+                    panic!("{}", err);
                 }
             }
         });
@@ -49,32 +39,20 @@ impl AsyncIncomingTunnel for UDPTunnel {
     }
 
     async fn write(&self, peer: String, payload: &[u8]) -> anyhow::Result<usize, TunnelError> {
-        let peers_guard = self.peers.read().await;
+        let peer: SocketAddr = peer.parse().unwrap();
 
-        if let Some(peer_addr) = peers_guard.get(&peer) {
-            let peer_addr: SocketAddr = peer_addr.parse().unwrap();
-
-            return match self.socket.send_to(payload, peer_addr).await {
-                Ok(n) => {
-                    debug!("{} bytes written to {}", payload.len(), peer_addr);
-                    Ok(n)
-                }
-                Err(err) => Err(TunnelError::IO((err.to_string(), err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE)))),
-            };
+        match self.socket.send_to(payload, peer).await {
+            Ok(n) => Ok(n),
+            Err(err) => Err(TunnelError::IO((err.to_string(), err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE)))),
         }
-
-        Err(TunnelError::Connection((
-            format!("failed to write payload: {} peer not found", peer),
-            NO_PEER_FOUND,
-        )))
     }
 }
 
 impl UDPTunnel {
     pub async fn new(addr: SocketAddr) -> Self {
         Self {
+            id: String::new(),
             socket: Arc::new(UdpSocket::bind(addr).await.unwrap()),
-            peers: RwLock::new(HashMap::new()),
         }
     }
 }

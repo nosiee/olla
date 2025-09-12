@@ -7,14 +7,14 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, WriteHalf};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
-use tokio::{net::TcpStream, sync::mpsc::Sender};
+use tokio::{net::TcpStream, sync::broadcast::Sender};
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::server::TlsStream;
 use tracing::debug;
+use types::*;
 
 use crate::header;
 use crate::{AsyncIncomingTunnel, errors::TunnelError};
-use device::Message;
 
 pub struct TLSTunnel {
     addr: SocketAddr,
@@ -25,7 +25,7 @@ pub struct TLSTunnel {
 }
 
 impl AsyncIncomingTunnel for TLSTunnel {
-    async fn forward(self: Arc<Self>, tx: Sender<Message>) -> anyhow::Result<(), TunnelError> {
+    async fn forward(self: Arc<Self>, tx: Sender<PacketCoordinatorMessage>) -> anyhow::Result<(), TunnelError> {
         let certs = CertificateDer::pem_file_iter(&self.cert).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
         let key = PrivateKeyDer::from_pem_file(&self.key).unwrap();
         let config = rustls::ServerConfig::builder()
@@ -52,9 +52,8 @@ impl AsyncIncomingTunnel for TLSTunnel {
 
     async fn write(&self, peer: String, payload: &[u8]) -> anyhow::Result<usize, TunnelError> {
         let mut peers_guard = self.peers.write().await;
-
         if let Some(stream) = peers_guard.get_mut(&peer) {
-            let payload = header::extend_payload(payload);
+            let payload = header::extend_payload(payload, None);
 
             if let Ok(n) = stream.write(&payload).await {
                 debug!("{} bytes written to {}", n, peer);
@@ -77,7 +76,7 @@ impl TLSTunnel {
         }
     }
 
-    async fn addr_peer(&self, peer: &SocketAddr, stream: TlsStream<TcpStream>, tx: Sender<Message>) {
+    async fn addr_peer(&self, peer: &SocketAddr, stream: TlsStream<TcpStream>, tx: Sender<PacketCoordinatorMessage>) {
         let (mut r_stream, w_stream) = tokio::io::split(stream);
         let mut peers_guard = self.peers.write().await;
 
@@ -100,7 +99,7 @@ impl TLSTunnel {
                             buf.truncate(n);
 
                             debug!("read {} bytes from {}", n + header::HEADER_SIZE, peer_str.clone());
-                            if tx.send(buf.freeze()).await.is_err() {
+                            if tx.send((String::new(), peer_str.clone(), buf.freeze())).is_err() {
                                 break;
                             }
                         }
