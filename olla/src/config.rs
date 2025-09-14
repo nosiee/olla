@@ -1,9 +1,10 @@
 use serde_derive::Deserialize;
-use std::fs;
+use std::{fs, path::PathBuf};
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
     pub device: DeviceConfig,
+    pub tunnel: Option<TunnelConfig>,
     pub rules: Option<ClientRules>,
     pub nodes: Vec<NodeConfig>,
 }
@@ -18,6 +19,11 @@ pub struct DeviceConfig {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+pub struct TunnelConfig {
+    pub addr: String,
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct ClientRules {
     pub tunnels: Vec<String>,
     pub nodes: u64,
@@ -27,15 +33,11 @@ pub struct ClientRules {
 pub struct NodeConfig {
     pub id: String,
     pub addr: String,
-    pub tunnel: String,
-
     pub keepalive: Option<u64>,
     pub primary: Option<bool>,
-    pub ca: Option<String>,
-    pub sni: Option<String>,
 }
 
-pub fn from_file(path: &str) -> anyhow::Result<Config> {
+pub fn from_file(path: PathBuf) -> anyhow::Result<Config> {
     let data = fs::read_to_string(path)?;
     Ok(toml::from_str(&data)?)
 }

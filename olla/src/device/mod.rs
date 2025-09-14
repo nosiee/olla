@@ -2,14 +2,14 @@ pub mod config;
 pub mod packet;
 pub mod util;
 
+use async_channel::{Receiver, Sender};
 use bytes::{Bytes, BytesMut};
 use config::DeviceConfig;
 use std::sync::Arc;
-use tokio::sync::broadcast::{self, Receiver, Sender};
 use tracing::debug;
 use tun_rs::{AsyncDevice, DeviceBuilder, Layer};
 
-pub const DEVICE_BUFFER_SIZE: usize = 1024;
+pub const DEVICE_BUFFER_SIZE: usize = 16384;
 pub type Message = Bytes;
 
 pub struct Device {
@@ -60,8 +60,8 @@ impl Device {
     }
 
     pub async fn forward(&self) -> anyhow::Result<(Sender<Message>, Receiver<Message>)> {
-        let (itx, irx): (Sender<Message>, Receiver<Message>) = broadcast::channel(DEVICE_BUFFER_SIZE);
-        let (otx, mut orx): (Sender<Message>, Receiver<Message>) = broadcast::channel(DEVICE_BUFFER_SIZE);
+        let (itx, irx): (Sender<Message>, Receiver<Message>) = async_channel::bounded(DEVICE_BUFFER_SIZE);
+        let (otx, orx): (Sender<Message>, Receiver<Message>) = async_channel::bounded(DEVICE_BUFFER_SIZE);
         let mtu = self.mtu;
 
         let in_dev = self.dev.clone();
@@ -77,7 +77,7 @@ impl Device {
 
                     buffer.truncate(n);
 
-                    if let Err(err) = itx.send(buffer.freeze()) {
+                    if let Err(err) = itx.send(buffer.freeze()).await {
                         panic!("{:?}", err);
                     }
                 }

@@ -1,34 +1,33 @@
 pub mod rule;
 
+use async_channel::{Receiver, Sender};
 use bytes::BytesMut;
-use device::{DEVICE_BUFFER_SIZE, Message};
 use std::net::SocketAddr;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
-use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::{debug, error};
-use tunnels::{AsyncOutgoingTunnel, TunnelType};
 
 use super::node::rule::CoodinatorRules;
+use crate::device::{DEVICE_BUFFER_SIZE, Message};
+use crate::tunnels::outgoing::OutgoingTunnel;
 
 #[derive(Debug)]
-pub struct Node<T: AsyncOutgoingTunnel> {
+pub struct Node {
     pub id: String,
     pub addr: SocketAddr,
-    pub tunnel_type: TunnelType,
-    pub tunnel: T,
+    pub tunnel: OutgoingTunnel,
     pub max_fragment_size: usize,
 }
 
 #[derive(Debug)]
-pub struct NodeCoordinator<T: AsyncOutgoingTunnel + Send + Sync + 'static> {
-    nodes: Vec<Arc<Node<T>>>,
+pub struct NodeCoordinator {
+    nodes: Vec<Arc<Node>>,
     subscribes: RwLock<HashMap<String, ()>>,
     rules: Option<CoodinatorRules>,
 }
 
-impl<T: AsyncOutgoingTunnel + Send + Sync + 'static> NodeCoordinator<T> {
-    pub fn new(nodes: Vec<Arc<Node<T>>>) -> Self {
+impl NodeCoordinator {
+    pub fn new(nodes: Vec<Arc<Node>>) -> Self {
         NodeCoordinator {
             nodes,
             rules: None,
@@ -37,12 +36,12 @@ impl<T: AsyncOutgoingTunnel + Send + Sync + 'static> NodeCoordinator<T> {
     }
 
     pub fn forward(self: Arc<Self>) -> (Sender<Message>, Receiver<Message>) {
-        let (itx, irx): (Sender<Message>, Receiver<Message>) = mpsc::channel(DEVICE_BUFFER_SIZE);
-        let (otx, mut orx): (Sender<Message>, Receiver<Message>) = mpsc::channel(DEVICE_BUFFER_SIZE);
+        let (itx, irx): (Sender<Message>, Receiver<Message>) = async_channel::bounded(DEVICE_BUFFER_SIZE);
+        let (otx, orx): (Sender<Message>, Receiver<Message>) = async_channel::bounded(DEVICE_BUFFER_SIZE);
         let self_c = self.clone();
 
         tokio::spawn(async move {
-            while let Some(payload) = orx.recv().await {
+            while let Ok(payload) = orx.recv().await {
                 let node = self_c.pick_node();
                 debug!("{}, {} node picked", node.id, node.addr.to_string());
 
@@ -59,7 +58,7 @@ impl<T: AsyncOutgoingTunnel + Send + Sync + 'static> NodeCoordinator<T> {
         (otx, irx)
     }
 
-    async fn subscribe_to_node(&self, node: Arc<Node<T>>, itx: Sender<Message>) {
+    async fn subscribe_to_node(&self, node: Arc<Node>, itx: Sender<Message>) {
         let r_guard = self.subscribes.read().await;
         let node_id = node.id.clone();
 
@@ -89,7 +88,7 @@ impl<T: AsyncOutgoingTunnel + Send + Sync + 'static> NodeCoordinator<T> {
         }
     }
 
-    fn pick_node(&self) -> Arc<Node<T>> {
+    fn pick_node(&self) -> Arc<Node> {
         if self.rules.is_some() {
             return self.pick_policy_node();
         }
@@ -97,14 +96,14 @@ impl<T: AsyncOutgoingTunnel + Send + Sync + 'static> NodeCoordinator<T> {
         self.pick_random_node()
     }
 
-    fn pick_random_node(&self) -> Arc<Node<T>> {
+    fn pick_random_node(&self) -> Arc<Node> {
         let n = self.nodes.len();
         let rand_n = rand::random_range(0..n);
 
         self.nodes[rand_n].clone()
     }
 
-    fn pick_policy_node(&self) -> Arc<Node<T>> {
+    fn pick_policy_node(&self) -> Arc<Node> {
         self.nodes[0].clone()
     }
 }
