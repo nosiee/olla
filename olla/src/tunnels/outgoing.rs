@@ -3,12 +3,11 @@ use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 use tracing::debug;
 
-use crate::AsyncOutgoingTunnel;
-use crate::errors::{CONNECT_ERROR, DEFAULT_ERROR_CODE, TunnelError};
-use crate::header;
+use super::errors::*;
+use super::header;
 
 #[derive(Debug)]
-pub struct UDPTunnel {
+pub struct OutgoingTunnel {
     socket: RwLock<Option<UdpSocket>>,
     addr: Option<SocketAddr>,
 
@@ -16,57 +15,13 @@ pub struct UDPTunnel {
     pnode_addr: Option<SocketAddr>,
 }
 
-impl AsyncOutgoingTunnel for UDPTunnel {
-    async fn send(&self, payload: &[u8]) -> anyhow::Result<usize, TunnelError> {
-        if self.socket.read().await.is_none() {
-            let socket = self.connect().await?;
-            let mut w_socket_guard = self.socket.write().await;
-
-            *w_socket_guard = Some(socket);
-        }
-
-        let w_socket_guard = self.socket.read().await;
-        let socket = w_socket_guard.as_ref().unwrap();
-        let payload = header::extend_payload(payload, self.pnode_addr);
-
-        if let Err(err) = socket.send(&payload).await {
-            return Err(TunnelError::IO((err.to_string(), err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE))));
-        }
-
-        debug!("{} bytes written to {}", payload.len(), self.addr.unwrap().to_string());
-        Ok(payload.len())
-    }
-
-    async fn recv(&self, buffer: &mut [u8]) -> anyhow::Result<usize, TunnelError> {
-        let w_socket_guard = self.socket.read().await;
-        let socket = w_socket_guard.as_ref().unwrap();
-
-        match socket.recv_from(buffer).await {
-            Ok((n, addr)) => {
-                debug!("{} bytes read from {}", n, addr.to_string());
-                Ok(n)
-            }
-            Err(err) => Err(TunnelError::IO((err.to_string(), err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE)))),
-        }
-    }
-
-    async fn recv_exact(&self, buffer: &mut [u8]) -> anyhow::Result<usize, TunnelError> {
-        self.recv(buffer).await
-    }
-
-    async fn check_connect(&self) -> anyhow::Result<(), TunnelError> {
-        let _ = self.connect().await?;
-        Ok(())
-    }
-}
-
-impl Default for UDPTunnel {
+impl Default for OutgoingTunnel {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl UDPTunnel {
+impl OutgoingTunnel {
     pub fn new() -> Self {
         Self {
             socket: RwLock::new(None),
@@ -90,6 +45,48 @@ impl UDPTunnel {
     pub fn set_primary_node(mut self, pnode_addr: SocketAddr) -> Self {
         self.pnode_addr = Some(pnode_addr);
         self
+    }
+
+    pub async fn send(&self, payload: &[u8]) -> anyhow::Result<usize, TunnelError> {
+        if self.socket.read().await.is_none() {
+            let socket = self.connect().await?;
+            let mut w_socket_guard = self.socket.write().await;
+
+            *w_socket_guard = Some(socket);
+        }
+
+        let w_socket_guard = self.socket.read().await;
+        let socket = w_socket_guard.as_ref().unwrap();
+        let payload = header::extend_payload(payload, self.pnode_addr);
+
+        if let Err(err) = socket.send(&payload).await {
+            return Err(TunnelError::IO((err.to_string(), err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE))));
+        }
+
+        debug!("{} bytes written to {}", payload.len(), self.addr.unwrap().to_string());
+        Ok(payload.len())
+    }
+
+    pub async fn recv(&self, buffer: &mut [u8]) -> anyhow::Result<usize, TunnelError> {
+        let w_socket_guard = self.socket.read().await;
+        let socket = w_socket_guard.as_ref().unwrap();
+
+        match socket.recv_from(buffer).await {
+            Ok((n, addr)) => {
+                debug!("{} bytes read from {}", n, addr.to_string());
+                Ok(n)
+            }
+            Err(err) => Err(TunnelError::IO((err.to_string(), err.raw_os_error().unwrap_or(DEFAULT_ERROR_CODE)))),
+        }
+    }
+
+    pub async fn recv_exact(&self, buffer: &mut [u8]) -> anyhow::Result<usize, TunnelError> {
+        self.recv(buffer).await
+    }
+
+    pub async fn check_connect(&self) -> anyhow::Result<(), TunnelError> {
+        let _ = self.connect().await?;
+        Ok(())
     }
 
     async fn connect(&self) -> anyhow::Result<UdpSocket, TunnelError> {
