@@ -33,7 +33,6 @@ pub struct ClientRules {
 pub struct NodeConfig {
     pub id: String,
     pub addr: String,
-    pub keepalive: Option<u64>,
     pub primary: Option<bool>,
 }
 

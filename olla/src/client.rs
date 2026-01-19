@@ -44,7 +44,6 @@ fn create_nodes(nc: &Vec<config::NodeConfig>, mtu: usize, primary_node: SocketAd
             addr: node.addr.parse().unwrap(),
             tunnel: outgoing::OutgoingTunnel::new()
                 .set_addr(node.addr.parse().unwrap())
-                .set_keepalive(node.keepalive.unwrap_or_default())
                 .set_primary_node(primary_node),
             max_fragment_size: mtu + HEADER_SIZE,
         };

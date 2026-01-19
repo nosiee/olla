@@ -32,9 +32,7 @@ fn create_nodes(nc: &Vec<config::NodeConfig>, mtu: usize) -> Vec<Arc<Node>> {
         let node = Node {
             id: node.id.clone(),
             addr: node.addr.parse().unwrap(),
-            tunnel: outgoing::OutgoingTunnel::new()
-                .set_addr(node.addr.parse().unwrap())
-                .set_keepalive(node.keepalive.unwrap_or_default()),
+            tunnel: outgoing::OutgoingTunnel::new().set_addr(node.addr.parse().unwrap()),
             max_fragment_size: mtu + HEADER_SIZE,
         };
 
