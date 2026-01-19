@@ -12,18 +12,13 @@ use super::errors::*;
 use crate::coordinator::packet::PacketCoordinatorMessage;
 
 pub struct IncomingTunnel {
-    id: String,
     addr: SockAddr,
     socket: Option<Arc<UdpSocket>>,
 }
 
 impl IncomingTunnel {
     pub fn new(addr: SockAddr) -> Self {
-        Self {
-            id: String::new(),
-            addr,
-            socket: None,
-        }
+        Self { addr, socket: None }
     }
 
     pub async fn forward(&mut self, tx: Sender<PacketCoordinatorMessage>) -> anyhow::Result<(), TunnelError> {
@@ -57,7 +52,7 @@ impl IncomingTunnel {
                     let (n, addr) = r.unwrap();
                     buffer.truncate(n);
 
-                    if let Err(err) = tx.send((String::new(), addr.to_string(), buffer.freeze())).await {
+                    if let Err(err) = tx.send((addr.to_string(), buffer.freeze())).await {
                         panic!("{}", err);
                     }
                 }

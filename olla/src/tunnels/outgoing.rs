@@ -80,15 +80,6 @@ impl OutgoingTunnel {
         }
     }
 
-    pub async fn recv_exact(&self, buffer: &mut [u8]) -> anyhow::Result<usize, TunnelError> {
-        self.recv(buffer).await
-    }
-
-    pub async fn check_connect(&self) -> anyhow::Result<(), TunnelError> {
-        let _ = self.connect().await?;
-        Ok(())
-    }
-
     async fn connect(&self) -> anyhow::Result<UdpSocket, TunnelError> {
         let socket = match UdpSocket::bind("0.0.0.0:0").await {
             Ok(socket) => socket,
