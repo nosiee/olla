@@ -1,0 +1,18 @@
+[device]
+name = "tun0"
+mtu = 1360
+addr = "10.0.0.1"
+mask = "255.255.255.0"
+disable_on_exit = true
+
+[tunnel]
+addr = "0.0.0.0:50051"
+
+[[nodes]]
+id = "94303db4-4421-450a-84cf-4f78a9e26d21"
+addr = "255.255.255.255:50051"
+primary = true
+
+[[nodes]]
+id = "aa501cf6-f597-4521-aea0-2d285f786353"
+addr = "254.254.254.254:50051"

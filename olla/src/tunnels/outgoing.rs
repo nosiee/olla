@@ -11,7 +11,6 @@ pub struct OutgoingTunnel {
     socket: RwLock<Option<UdpSocket>>,
     addr: Option<SocketAddr>,
 
-    keepalive: u64,
     pnode_addr: Option<SocketAddr>,
 }
 
@@ -27,18 +26,12 @@ impl OutgoingTunnel {
             socket: RwLock::new(None),
             addr: None,
 
-            keepalive: 0,
             pnode_addr: None,
         }
     }
 
     pub fn set_addr(mut self, addr: SocketAddr) -> Self {
         self.addr = Some(addr);
-        self
-    }
-
-    pub fn set_keepalive(mut self, keepalive: u64) -> Self {
-        self.keepalive = keepalive;
         self
     }
 
