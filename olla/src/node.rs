@@ -21,10 +21,8 @@ pub async fn run(path: PathBuf) -> anyhow::Result<()> {
 
     let (tun_tx, tun_rx) = device.forward().await?;
     let (pc_tx, pc_rx) = packet_coordinator.forward(tun_tx, tun_rx);
-    let _ = run_tunnel(config.tunnel.unwrap(), pc_tx, pc_rx).await;
 
-    tokio::time::sleep(std::time::Duration::from_secs(100000)).await;
-    Ok(())
+    run_tunnel(config.tunnel.unwrap(), pc_tx, pc_rx).await
 }
 
 fn create_nodes(nc: &Vec<config::NodeConfig>, mtu: usize) -> Vec<Arc<Node>> {
@@ -65,7 +63,7 @@ async fn run_tunnel(
     let mut incomingtun = incoming::IncomingTunnel::new(SockAddr::from(addr));
     let _ = incomingtun.forward(tx).await;
 
-    while let Ok((_, peer, payload)) = rx.recv().await {
+    while let Ok((peer, payload)) = rx.recv().await {
         if let Err(err) = incomingtun.write(peer, &payload).await {
             error!("failed to write payload: {:?}", err);
         }

@@ -13,11 +13,11 @@ use crate::tunnels::header::{self, HEADER_SIZE};
 use super::node::Node;
 use crate::device;
 
-pub type PacketCoordinatorMessage = (String, String, Message);
+pub type PacketCoordinatorMessage = (String, Message);
 
 #[derive(Debug)]
 pub struct PacketCoordinator {
-    coordination_table: RwLock<HashMap<String, (String, String)>>,
+    coordination_table: RwLock<HashMap<String, String>>,
     nodes: Vec<Arc<Node>>,
     primary_nodes: RwLock<HashMap<String, ()>>,
 
@@ -58,7 +58,7 @@ impl PacketCoordinator {
             let tun_dev_tx = tun_dev_tx.clone();
 
             tokio::spawn(async move {
-                while let Ok((tunnel_id, peer, mut payload)) = orx.recv().await {
+                while let Ok((peer, mut payload)) = orx.recv().await {
                     if payload.len() <= HEADER_SIZE {
                         debug!("{} packet omitted, unusual size: {}b", hex::encode(&payload), payload.len());
                         continue;
@@ -77,10 +77,9 @@ impl PacketCoordinator {
                     };
 
                     debug!(
-                        "{} bytes read from {}, tunnel id: {}, identity: {}, header frame: {:?}",
+                        "{} bytes read from {}, identity: {}, header frame: {:?}",
                         payload.len() + HEADER_SIZE,
                         peer,
-                        tunnel_id,
                         identity,
                         header_frame
                     );
@@ -100,7 +99,7 @@ impl PacketCoordinator {
                     // after the packet from client arrived here and we validate ip/client_id
                     // we can create the peers mapping and to be sure that there is no other
                     // way to overwrite it only if an attacker have client_id and ip range
-                    self_c.add_coordination(identity, (tunnel_id, peer)).await;
+                    self_c.add_coordination(identity, peer).await;
                 }
             });
         }
@@ -116,8 +115,8 @@ impl PacketCoordinator {
                 };
 
                 match self.get_coordination(&identity).await {
-                    Some((tunnel_id, peer)) => {
-                        itx.send((tunnel_id, peer, payload)).await.unwrap();
+                    Some(peer) => {
+                        itx.send((peer, payload)).await.unwrap();
                     }
                     None => debug!("{} packet omitted, coordination not found", hex::encode(&payload)),
                 }
@@ -165,8 +164,8 @@ impl PacketCoordinator {
                         };
 
                         match self_c.get_coordination(&identity).await {
-                            Some((tunnel_id, peer)) => {
-                                itx.send((tunnel_id, peer, buffer.freeze())).await.unwrap();
+                            Some(peer) => {
+                                itx.send((peer, buffer.freeze())).await.unwrap();
                             }
                             None => debug!("{} packet omitted, coordination not found", hex::encode(&buffer)),
                         }
@@ -181,12 +180,12 @@ impl PacketCoordinator {
         Ok(())
     }
 
-    async fn add_coordination(&self, identity: String, v: (String, String)) {
+    async fn add_coordination(&self, identity: String, peer: String) {
         let mut table_guard = self.coordination_table.write().await;
-        table_guard.insert(identity, v);
+        table_guard.insert(identity, peer);
     }
 
-    async fn get_coordination(&self, identity: &String) -> Option<(String, String)> {
+    async fn get_coordination(&self, identity: &String) -> Option<String> {
         let table_guard = self.coordination_table.read().await;
         table_guard.get(identity).cloned()
     }

@@ -63,8 +63,6 @@ impl NodeCoordinator {
         let node_id = node.id.clone();
 
         if r_guard.get(&node_id).is_none() {
-            // NOTE(nosiee): not sure about this but otherwise we will block on
-            // subscribes.write() call
             drop(r_guard);
 
             let mut w_guard = self.subscribes.write().await;
